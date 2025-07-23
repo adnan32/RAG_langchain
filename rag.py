@@ -1,10 +1,12 @@
 import fitz
+import re
 from langchain.text_splitter import (
     RecursiveCharacterTextSplitter,
     TokenTextSplitter,
     NLTKTextSplitter,
     MarkdownHeaderTextSplitter
 )
+from sentence_transformers import SentenceTransformer, util
 from langchain_ollama import OllamaLLM
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Chroma, FAISS
@@ -15,6 +17,7 @@ from langchain.chains import RetrievalQA
 from langchain.prompts import PromptTemplate
 from langchain.chains import LLMChain
 from difflib import SequenceMatcher
+import pdfplumber
 
 splitter_classes = {
     "RecursiveCharacterTextSplitter": RecursiveCharacterTextSplitter,
@@ -52,22 +55,72 @@ class RagPipeline():
         self.split_strategy = "RecursiveCharacterTextSplitter"
         self.embedding_model = "all-MiniLM-L6-v2"
         self.vectorstore_type = "Chroma"
-
+        self.embedder = SentenceTransformer(self.embedding_model)
+        
+    def is_semantically_similar(self,text1, text2, threshold=0.8):
+        self.embedding_model = "all-MiniLM-L6-v2"
+        embeddings = self.embedder.encode([text1, text2], convert_to_tensor=True)
+        sim_score = util.pytorch_cos_sim(embeddings[0], embeddings[1]).item()
+        return sim_score > threshold
+    
+    def extract_the_laste_sentence(self, text):
+        text=text.replace('\r\n', ' ').replace('\n', ' ')
+        text = re.sub(r'-\s+', '',text)
+        sentence=re.split(r'(?<=[.!?])\s',text.strip())
+        if not sentence:
+            return text.strip()
+        return sentence[-1]
+    
     def extract_text(self, uploaded_file):
-        doc = fitz.open(stream=uploaded_file.read(), filetype="pdf")
-        raw_text = ""
-        for page in doc:
-            page_text = page.get_text("text")
-            if page_text:
-                raw_text += page_text + "\n\n"
-        cleaned_text = (
-            raw_text
-            .replace("\r\n", "\n")
-            .replace("\n", " ")
-            .replace("  ", " ")
-            .strip()
-        )
-        return cleaned_text
+        with pdfplumber.open(uploaded_file) as pdf:
+            doc = "\n".join(page.extract_text() for page in pdf.pages if page.extract_text())
+
+        # Match potential headings (not ending in number, colon, or dot)
+        pattern = r"\n([A-Za-z0-9\s:()\-.]{3,70}?)(?<![\d.:])\n"
+        splits = re.split(pattern, doc)
+
+        structured = []
+        i = 1
+        while i < len(splits) - 1:
+            heading = splits[i].strip()
+            section_text = splits[i + 1].strip()
+
+            print("___________________________________")
+            print("### heading:", heading)
+            print("section:", section_text)
+
+            if structured:
+                last_section_text = structured[-1]['section']
+                if last_section_text:
+                    last_sentence = self.extract_the_laste_sentence(last_section_text)
+                    print("Last sentence:", last_sentence)
+                    if self.is_semantically_similar(last_sentence,heading):
+                        structured[-1]['section'] = (last_section_text + " " + heading).strip()
+                        i += 2
+                        continue
+
+            structured.append({
+                "heading": heading,
+                "section": section_text
+            })
+
+            i += 2
+
+        return structured
+                
+        # raw_text = ""
+        # for page in doc:
+        #     page_text = page.get_text("text")
+        #     if page_text:
+        #         raw_text += page_text + "\n\n"
+        # cleaned_text = (
+        #     raw_text
+        #     .replace("\r\n", "\n")
+        #     .replace("\n", " ")
+        #     .replace("  ", " ")
+        #     .strip()
+        # )
+        return doc
 
     def add_file(self, file, split_strategy=None, embedding_model=None, vectorstore=None):
         split_strategy  = split_strategy  or self.split_strategy

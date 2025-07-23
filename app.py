@@ -80,21 +80,23 @@ def show_setup():
 
     if uploaded_file is not None:
         file_type = uploaded_file.type
-        if file_type == "application/pdf":
-            try:
-                text_file = st.session_state.rag.add_file(
-                    uploaded_file,
-                    split_strategy,
-                    embedding_model,
-                    vectorstore
-                )
-                st.session_state.file_uploaded = True
-                st.text_area("Extracted PDF text", text_file, height=200)
-                st.success(f"✅ {uploaded_file.name} processed and ready!")
-            except Exception as e:
-                st.error(f"Failed to extract text from PDF: {e}")
-        else:
-            st.write("Faild to upload a valid file type")
+        text_file=st.session_state.rag.extract_text(uploaded_file.name)
+        st.write(text_file)
+        # if file_type == "application/pdf":
+        #     try:
+        #         text_file = st.session_state.rag.add_file(
+        #             uploaded_file,
+        #             split_strategy,
+        #             embedding_model,
+        #             vectorstore
+        #         )
+        #         st.session_state.file_uploaded = True
+        #         st.text_area("Extracted PDF text", text_file, height=200)
+        #         st.success(f"✅ {uploaded_file.name} processed and ready!")
+        #     except Exception as e:
+        #         st.error(f"Failed to extract text from PDF: {e}")
+        # else:
+        #     st.write("Faild to upload a valid file type")
 
     # proceed button
     if st.session_state.file_uploaded:
